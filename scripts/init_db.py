@@ -73,18 +73,36 @@ CREATE TABLE IF NOT EXISTS {SCHEMA_NAME}.contracts (
 );
 
 -- Payment schedule table (expected payments)
+-- Supports: booking_fee, installment_1 through installment_5
 CREATE TABLE IF NOT EXISTS {SCHEMA_NAME}.payment_schedule (
     id SERIAL PRIMARY KEY,
-    contract_id INTEGER NOT NULL REFERENCES {SCHEMA_NAME}.contracts(id),
-    due_date DATE NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    payment_type VARCHAR(30) DEFAULT 'rent',
-    status VARCHAR(20) DEFAULT 'pending',
+    contract_id INTEGER NOT NULL REFERENCES {SCHEMA_NAME}.contracts(id) ON DELETE CASCADE,
+    installment_number SMALLINT NOT NULL,  -- 0=booking_fee, 1-5=installments
+    due_date DATE,
+    amount DECIMAL(10,2),
+    status VARCHAR(20) DEFAULT 'pending',  -- pending, paid, overdue, partial
     paid_date DATE,
     paid_amount DECIMAL(10,2),
     monday_id VARCHAR(50),
+    notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT unique_contract_installment UNIQUE (contract_id, installment_number)
+);
+
+-- Actual payments received (for tracking against expected)
+CREATE TABLE IF NOT EXISTS {SCHEMA_NAME}.payments_received (
+    id SERIAL PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES {SCHEMA_NAME}.contracts(id) ON DELETE CASCADE,
+    payment_date DATE NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(50),  -- bank_transfer, card, agent_remit
+    reference VARCHAR(100),
+    allocated_to_installment SMALLINT,  -- links to installment_number
+    monday_id VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- OPEX budget table
@@ -100,9 +118,12 @@ CREATE TABLE IF NOT EXISTS {SCHEMA_NAME}.opex_budget (
 CREATE INDEX IF NOT EXISTS idx_contracts_room_id ON {SCHEMA_NAME}.contracts(room_id);
 CREATE INDEX IF NOT EXISTS idx_contracts_dates ON {SCHEMA_NAME}.contracts(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_contracts_status ON {SCHEMA_NAME}.contracts(status);
+CREATE INDEX IF NOT EXISTS idx_contracts_resident ON {SCHEMA_NAME}.contracts(resident_name);
 CREATE INDEX IF NOT EXISTS idx_payment_schedule_due_date ON {SCHEMA_NAME}.payment_schedule(due_date);
 CREATE INDEX IF NOT EXISTS idx_payment_schedule_status ON {SCHEMA_NAME}.payment_schedule(status);
 CREATE INDEX IF NOT EXISTS idx_payment_schedule_contract ON {SCHEMA_NAME}.payment_schedule(contract_id);
+CREATE INDEX IF NOT EXISTS idx_payments_received_date ON {SCHEMA_NAME}.payments_received(payment_date);
+CREATE INDEX IF NOT EXISTS idx_payments_received_contract ON {SCHEMA_NAME}.payments_received(contract_id);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION {SCHEMA_NAME}.update_updated_at_column()

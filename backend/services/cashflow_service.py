@@ -10,15 +10,26 @@ logger = logging.getLogger(__name__)
 class CashFlowService:
     """
     Service for calculating cash flow metrics.
-    Generates expected payment schedules from contracts based on payment plan rules.
+    Works with actual payment schedules imported from Monday/Excel.
+
+    Payment structure:
+    - installment_number 0 = Booking Fee
+    - installment_number 1-5 = Installments (termly, not monthly)
+
+    Payment plans:
+    - Installments: Booking fee + 4 termly installments
+    - Single Payment: Booking fee + 1 full payment
+    - Studentluxe: 3-4 installments (agent remits), no booking fee
+    - Special Payment Terms: Custom schedule
     """
 
-    # Payment plan rules - defines how each plan translates to payment schedule
-    PAYMENT_PLAN_RULES = {
-        "Single Payment": {"type": "upfront", "timing": "start"},
-        "Installments": {"type": "monthly", "timing": "start_of_month"},
-        "Studentluxe": {"type": "agent", "timing": "monthly"},  # Agent remits monthly
-        "Special Payment Terms": {"type": "custom", "timing": "custom"},
+    INSTALLMENT_LABELS = {
+        0: "Booking Fee",
+        1: "Installment 1",
+        2: "Installment 2",
+        3: "Installment 3",
+        4: "Installment 4",
+        5: "Installment 5",
     }
 
     def __init__(self):
@@ -36,22 +47,45 @@ class CashFlowService:
             # Expected inflows this month
             query = """
                 SELECT
-                    COALESCE(SUM(amount), 0) as expected_inflows
+                    COALESCE(SUM(amount), 0) as expected_inflows,
+                    COUNT(*) as payment_count
                 FROM more_house.payment_schedule
                 WHERE due_date >= %s AND due_date < %s
+                AND status = 'pending'
             """
-            inflows = execute_query(query, (month_start, next_month))
+            result = execute_query(query, (month_start, next_month))
+
+            # Actual received this month
+            received_query = """
+                SELECT COALESCE(SUM(amount), 0) as received
+                FROM more_house.payments_received
+                WHERE payment_date >= %s AND payment_date < %s
+            """
+            received = execute_query(received_query, (month_start, next_month))
+
+            # Overdue amount
+            overdue_query = """
+                SELECT COALESCE(SUM(amount), 0) as overdue
+                FROM more_house.payment_schedule
+                WHERE due_date < %s AND status = 'pending'
+            """
+            overdue = execute_query(overdue_query, (today,))
 
             return {
                 "month": month_start.strftime("%Y-%m"),
-                "expected_inflows": float(inflows[0]['expected_inflows']) if inflows else 0,
-                "note": "Actuals tracking pending Monday CRM integration"
+                "expected_inflows": float(result[0]['expected_inflows']) if result else 0,
+                "payments_due": int(result[0]['payment_count']) if result else 0,
+                "received": float(received[0]['received']) if received else 0,
+                "overdue": float(overdue[0]['overdue']) if overdue else 0,
             }
         except Exception as e:
             logger.warning(f"DB not ready: {e}")
             return {
                 "month": date.today().strftime("%Y-%m"),
                 "expected_inflows": 0,
+                "payments_due": 0,
+                "received": 0,
+                "overdue": 0,
                 "note": "Database not initialized"
             }
 
@@ -60,9 +94,7 @@ class CashFlowService:
         start_month: Optional[str] = None,
         end_month: Optional[str] = None
     ) -> List[Dict]:
-        """
-        Get monthly cash flow projection.
-        """
+        """Get monthly cash flow projection."""
         try:
             from utils.db_connection import execute_query
 
@@ -80,11 +112,20 @@ class CashFlowService:
                         '1 month'::interval
                     )::date as month_start
                 ),
-                monthly_inflows AS (
+                monthly_expected AS (
                     SELECT
                         DATE_TRUNC('month', due_date)::date as month,
-                        SUM(amount) as inflows
+                        SUM(amount) as expected,
+                        COUNT(*) as payment_count
                     FROM more_house.payment_schedule
+                    WHERE due_date IS NOT NULL
+                    GROUP BY 1
+                ),
+                monthly_received AS (
+                    SELECT
+                        DATE_TRUNC('month', payment_date)::date as month,
+                        SUM(amount) as received
+                    FROM more_house.payments_received
                     GROUP BY 1
                 ),
                 monthly_opex AS (
@@ -96,13 +137,16 @@ class CashFlowService:
                 )
                 SELECT
                     TO_CHAR(m.month_start, 'YYYY-MM') as month,
-                    COALESCE(i.inflows, 0) as inflows,
+                    COALESCE(e.expected, 0) as expected_inflows,
+                    COALESCE(r.received, 0) as actual_inflows,
                     COALESCE(o.outflows, 0) as outflows,
-                    COALESCE(i.inflows, 0) - COALESCE(o.outflows, 0) as net_cashflow,
-                    SUM(COALESCE(i.inflows, 0) - COALESCE(o.outflows, 0))
+                    COALESCE(e.payment_count, 0) as payments_due,
+                    COALESCE(e.expected, 0) - COALESCE(o.outflows, 0) as net_cashflow,
+                    SUM(COALESCE(e.expected, 0) - COALESCE(o.outflows, 0))
                         OVER (ORDER BY m.month_start) as running_balance
                 FROM months m
-                LEFT JOIN monthly_inflows i ON i.month = m.month_start
+                LEFT JOIN monthly_expected e ON e.month = m.month_start
+                LEFT JOIN monthly_received r ON r.month = m.month_start
                 LEFT JOIN monthly_opex o ON o.month = m.month_start
                 ORDER BY m.month_start
             """
@@ -126,26 +170,27 @@ class CashFlowService:
             query = """
                 WITH weeks AS (
                     SELECT generate_series(
-                        %s::date,
-                        %s::date + (%s * 7),
+                        DATE_TRUNC('week', %s::date),
+                        DATE_TRUNC('week', %s::date) + (%s * 7),
                         '1 week'::interval
                     )::date as week_start
                 ),
-                weekly_inflows AS (
+                weekly_expected AS (
                     SELECT
                         DATE_TRUNC('week', due_date)::date as week,
-                        SUM(amount) as inflows,
+                        SUM(amount) as expected,
                         COUNT(*) as payment_count
                     FROM more_house.payment_schedule
+                    WHERE due_date IS NOT NULL
                     GROUP BY 1
                 )
                 SELECT
                     TO_CHAR(w.week_start, 'YYYY-MM-DD') as week_start,
                     TO_CHAR(w.week_start + 6, 'YYYY-MM-DD') as week_end,
-                    COALESCE(wi.inflows, 0) as expected_inflows,
-                    COALESCE(wi.payment_count, 0) as payments_due
+                    COALESCE(we.expected, 0) as expected_inflows,
+                    COALESCE(we.payment_count, 0) as payments_due
                 FROM weeks w
-                LEFT JOIN weekly_inflows wi ON wi.week = w.week_start
+                LEFT JOIN weekly_expected we ON we.week = w.week_start
                 ORDER BY w.week_start
                 LIMIT %s
             """
@@ -174,22 +219,31 @@ class CashFlowService:
                     ps.contract_id,
                     c.room_id,
                     c.resident_name,
+                    c.payment_plan,
+                    ps.installment_number,
                     ps.due_date,
                     ps.amount,
-                    ps.payment_type,
                     ps.status
                 FROM more_house.payment_schedule ps
                 JOIN more_house.contracts c ON c.id = ps.contract_id
                 WHERE ps.due_date BETWEEN %s AND %s
-                ORDER BY ps.due_date
+                ORDER BY ps.due_date, c.resident_name
             """
-            return execute_query(query, (start_date, end_date))
+            results = execute_query(query, (start_date, end_date))
+
+            # Add installment label
+            for r in results:
+                r['installment_label'] = self.INSTALLMENT_LABELS.get(
+                    r['installment_number'], f"Payment {r['installment_number']}"
+                )
+
+            return results
         except Exception as e:
             logger.warning(f"DB not ready: {e}")
             return []
 
     def get_overdue_payments(self) -> List[Dict]:
-        """Get overdue payments (when actuals are tracked)."""
+        """Get overdue payments."""
         try:
             from utils.db_connection import execute_query
 
@@ -198,6 +252,8 @@ class CashFlowService:
                     ps.id,
                     c.room_id,
                     c.resident_name,
+                    c.payment_plan,
+                    ps.installment_number,
                     ps.due_date,
                     ps.amount,
                     CURRENT_DATE - ps.due_date as days_overdue
@@ -207,79 +263,36 @@ class CashFlowService:
                 AND ps.due_date < CURRENT_DATE
                 ORDER BY ps.due_date
             """
-            return execute_query(query)
+            results = execute_query(query)
+
+            for r in results:
+                r['installment_label'] = self.INSTALLMENT_LABELS.get(
+                    r['installment_number'], f"Payment {r['installment_number']}"
+                )
+
+            return results
         except Exception as e:
             logger.warning(f"DB not ready: {e}")
             return []
 
-    @staticmethod
-    def generate_payment_schedule(
-        contract_id: int,
-        total_value: float,
-        start_date: date,
-        end_date: date,
-        payment_plan: str
-    ) -> List[Dict]:
-        """
-        Generate payment schedule based on contract and payment plan.
-        This is used when importing contracts to create expected payments.
-        """
-        payments = []
-        rule = CashFlowService.PAYMENT_PLAN_RULES.get(
-            payment_plan,
-            {"type": "monthly", "timing": "start_of_month"}
-        )
+    def get_payment_summary_by_plan(self) -> List[Dict]:
+        """Get payment summary grouped by payment plan type."""
+        try:
+            from utils.db_connection import execute_query
 
-        if rule["type"] == "upfront":
-            # Single payment at start
-            payments.append({
-                "contract_id": contract_id,
-                "due_date": start_date,
-                "amount": total_value,
-                "payment_type": "rent",
-                "status": "pending"
-            })
-
-        elif rule["type"] == "monthly":
-            # Monthly installments
-            current = start_date.replace(day=1)
-            months = 0
-            while current <= end_date:
-                months += 1
-                current = (current + timedelta(days=32)).replace(day=1)
-
-            monthly_amount = round(total_value / months, 2)
-
-            current = start_date.replace(day=1)
-            while current <= end_date:
-                payments.append({
-                    "contract_id": contract_id,
-                    "due_date": current,
-                    "amount": monthly_amount,
-                    "payment_type": "rent",
-                    "status": "pending"
-                })
-                current = (current + timedelta(days=32)).replace(day=1)
-
-        elif rule["type"] == "agent":
-            # Agent payment (e.g., Studentluxe) - assume monthly remittance
-            current = start_date.replace(day=1)
-            months = 0
-            while current <= end_date:
-                months += 1
-                current = (current + timedelta(days=32)).replace(day=1)
-
-            monthly_amount = round(total_value / months, 2)
-
-            current = start_date.replace(day=1)
-            while current <= end_date:
-                payments.append({
-                    "contract_id": contract_id,
-                    "due_date": current + timedelta(days=14),  # Mid-month for agent remit
-                    "amount": monthly_amount,
-                    "payment_type": "agent_remit",
-                    "status": "pending"
-                })
-                current = (current + timedelta(days=32)).replace(day=1)
-
-        return payments
+            query = """
+                SELECT
+                    c.payment_plan,
+                    COUNT(DISTINCT c.id) as contract_count,
+                    SUM(c.total_value) as total_value,
+                    SUM(CASE WHEN ps.status = 'pending' THEN ps.amount ELSE 0 END) as pending_amount,
+                    SUM(CASE WHEN ps.status = 'paid' THEN ps.amount ELSE 0 END) as paid_amount
+                FROM more_house.contracts c
+                LEFT JOIN more_house.payment_schedule ps ON ps.contract_id = c.id
+                GROUP BY c.payment_plan
+                ORDER BY total_value DESC
+            """
+            return execute_query(query)
+        except Exception as e:
+            logger.warning(f"DB not ready: {e}")
+            return []
