@@ -157,7 +157,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:5174 in your browser.
 
 ## Project Structure
 
@@ -173,7 +173,7 @@ more_house/
 │   │   └── cashflow_service.py
 │   └── models/
 │       └── schemas.py       # Pydantic schemas
-├── frontend/                # React frontend (port 5173)
+├── frontend/                # React frontend (port 5174)
 │   ├── src/
 │   │   ├── App.jsx
 │   │   └── components/
