@@ -39,12 +39,13 @@ async def get_monthly_overview(
 @router.get("/weekly")
 async def get_weekly_overview(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    weeks: int = Query(8, description="Number of weeks to show")
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    weeks: int = Query(8, description="Number of weeks to show (ignored if end_date provided)")
 ):
     """
     Get weekly occupancy movements for granular planning.
     """
-    return service.get_weekly_overview(start_date, weeks)
+    return service.get_weekly_overview(start_date, end_date, weeks)
 
 
 @router.get("/vacancies/upcoming")
@@ -64,6 +65,15 @@ async def get_all_rooms():
     Get all rooms with current status and next event.
     """
     return service.get_all_rooms()
+
+
+@router.get("/rooms/timelines")
+async def get_all_room_timelines():
+    """
+    Get all rooms with their contract timelines in a single call.
+    More efficient than making 120 individual API calls.
+    """
+    return service.get_all_room_timelines()
 
 
 @router.get("/rooms/{room_id}/timeline")

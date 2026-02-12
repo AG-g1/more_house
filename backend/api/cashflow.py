@@ -62,3 +62,12 @@ async def get_overdue_payments():
     Get list of overdue payments (when actuals are tracked).
     """
     return service.get_overdue_payments()
+
+
+@router.get("/payments/schedule")
+async def get_payment_schedule_monthly():
+    """
+    Get payment schedule aggregated by month.
+    Shows num payments, expected, paid, and outstanding.
+    """
+    return service.get_payment_schedule_monthly()

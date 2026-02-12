@@ -296,3 +296,25 @@ class CashFlowService:
         except Exception as e:
             logger.warning(f"DB not ready: {e}")
             return []
+
+    def get_payment_schedule_monthly(self) -> List[Dict]:
+        """Get payment schedule aggregated by month with paid/outstanding breakdown."""
+        try:
+            from utils.db_connection import execute_query
+
+            query = """
+                SELECT
+                    TO_CHAR(due_date, 'YYYY-MM') as month,
+                    COUNT(*) as num_payments,
+                    SUM(amount) as total_expected,
+                    SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as total_paid,
+                    SUM(CASE WHEN status != 'paid' THEN amount ELSE 0 END) as outstanding
+                FROM more_house.payment_schedule
+                WHERE due_date IS NOT NULL
+                GROUP BY TO_CHAR(due_date, 'YYYY-MM')
+                ORDER BY month
+            """
+            return execute_query(query)
+        except Exception as e:
+            logger.warning(f"DB not ready: {e}")
+            return []
