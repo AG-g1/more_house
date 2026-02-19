@@ -44,8 +44,8 @@ async def health_check():
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 if FRONTEND_DIST.exists():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
-
+    # Mount static assets directory — this MUST come last (after all API routes)
+    # Using a catch-all route instead of app.mount to avoid routing conflicts
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """Serve frontend SPA - all non-API routes return index.html."""
