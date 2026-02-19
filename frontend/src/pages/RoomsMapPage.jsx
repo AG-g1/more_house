@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Building2, User, Calendar, Maximize2 } from 'lucide-react'
-
-const API_BASE = 'http://localhost:8001/api'
+import { API_BASE } from '../config'
 
 // Floor order from top to bottom of building
 const FLOOR_ORDER = ['Fifth', 'Fourth', 'Third', 'Second', 'First', 'Mezz', 'G', 'LG']

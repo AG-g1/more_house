@@ -13,8 +13,7 @@ import {
 } from 'recharts'
 import { TrendingUp, ArrowUpDown } from 'lucide-react'
 import PeriodSelector, { getPeriodConfig } from './ui/PeriodSelector'
-
-const API_BASE = '/api'
+import { API_BASE } from '../config'
 const TOTAL_CAPACITY = 120
 
 export default function OccupancyChart({ currentOccupancy = 0 }) {

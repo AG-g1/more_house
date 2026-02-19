@@ -5,6 +5,7 @@ import OccupancyPage from './pages/OccupancyPage'
 import CashFlowPage from './pages/CashFlowPage'
 import RoomsPage from './pages/RoomsPage'
 import RoomsMapPage from './pages/RoomsMapPage'
+import SyncStatusBar from './components/SyncStatusBar'
 
 export const SidebarContext = createContext()
 
@@ -16,7 +17,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/more_house">
       <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
         <div className="min-h-screen bg-slate-50">
           <Sidebar />
@@ -28,6 +29,7 @@ function App() {
             }`}
           >
             <div className="max-w-7xl mx-auto px-6 py-8">
+              <SyncStatusBar />
               <Routes>
                 <Route path="/" element={<OccupancyPage />} />
                 <Route path="/cashflow" element={<CashFlowPage />} />

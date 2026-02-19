@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import { DoorOpen, Users, Building2 } from 'lucide-react'
 import RoomsList from '../components/Rooms/RoomsList'
 import StatCard from '../components/ui/StatCard'
-
-const API_BASE = '/api'
+import { API_BASE } from '../config'
 
 export default function RoomsPage() {
   const [rooms, setRooms] = useState([])

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import OccupancySummary from '../components/OccupancySummary'
+import ActivityTable from '../components/ActivityTable'
 import OccupancyChart from '../components/OccupancyChart'
-
-const API_BASE = '/api'
+import { API_BASE } from '../config'
 
 export default function OccupancyPage() {
   const [occupancySummary, setOccupancySummary] = useState(null)
@@ -53,6 +53,7 @@ export default function OccupancyPage() {
       ) : (
         <>
           <OccupancySummary data={occupancySummary} />
+          <ActivityTable />
           <OccupancyChart currentOccupancy={currentOccupancy} />
 
           {/* Weekly Move-ins/Move-outs Table */}

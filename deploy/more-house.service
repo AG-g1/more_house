@@ -1,0 +1,15 @@
+[Unit]
+Description=More House Dashboard API
+After=network.target
+
+[Service]
+Type=simple
+User=alexgilts
+WorkingDirectory=/Users/alexgilts/PycharmProjects/more_house
+ExecStart=/Users/alexgilts/PycharmProjects/more_house/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8002
+Restart=always
+RestartSec=5
+Environment=ROOT_PATH=/more_house
+
+[Install]
+WantedBy=multi-user.target

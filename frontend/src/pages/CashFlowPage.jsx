@@ -9,8 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { PoundSterling, TrendingUp, Calendar, CheckCircle } from 'lucide-react'
-
-const API_BASE = '/api'
+import { API_BASE } from '../config'
 
 function formatCurrency(value) {
   if (value >= 1000000) {
