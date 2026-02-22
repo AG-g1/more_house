@@ -2,26 +2,47 @@
 
 Dashboard for tracking room occupancy and cash flow projections for More House student accommodation (120 units).
 
+**Live**: http://178.128.46.110/more_house/
+
 ## Features
 
-### Occupancy Movement Tracker
-- Monthly overview of projected move-ins and move-outs
-- Weekly drill-down for granular planning
-- Net occupancy change per period
-- Sales priority list: rooms becoming vacant with no follow-on booking
+### Dashboard (Home Page)
+- Occupancy summary: total rooms, occupied, vacant, occupancy rate
+- Average weekly rent and net income signed
+- **Activity table**: Viewings and contracts signed in last 1d/3d/7d/1m/3m (live from Monday CRM)
+- Expandable contract details (name, unit, sign date, start/end dates, rate)
+- Occupancy trend chart with move-in/move-out bars
+- Weekly schedule table with net changes
 
 ### Cash Flow View
-- Monthly cash inflows (rent payments) and outflows (OPEX)
-- Expected vs actual payment tracking
+- Monthly cash inflows (rent payments)
+- Expected vs received payment tracking
+- Payment schedule by month
 - Overdue payment alerts
-- Running balance forecast
+
+### Rooms List
+- All 120 rooms with current status
+- Filter by floor, category, status
+
+### Rooms Map
+- Visual building layout by floor
+- Color-coded by room category
+- Shows occupancy status per room
+
+### Monday CRM Sync
+- **Sync Now** button in dashboard header
+- Syncs rooms from MH - Unit Schedule board
+- Syncs contracts and payments from Won Deals board
+- Background sync via API endpoint
 
 ## Tech Stack
 
 - **Backend**: Python 3.12, FastAPI
 - **Frontend**: React 19, Vite, Tailwind CSS
 - **Database**: TimescaleDB (PostgreSQL) - `more_house` schema
-- **Integrations**: Monday CRM, Excel imports
+- **Integrations**: Monday CRM (live sync)
+- **Deployment**: DigitalOcean droplet, nginx, systemd
+- **CI/CD**: GitHub Actions auto-deploy on push to main
 
 ## Data Sources
 
@@ -30,15 +51,8 @@ Dashboard for tracking room occupancy and cash flow projections for More House s
 | Board | ID | Purpose |
 |-------|-----|---------|
 | MH - Unit Schedule | 9376648770 | Room inventory (120 units) |
-| Qualified | 9188309936 | CRM deals - converted = active bookings |
-| Won Deals (TBD) | - | Payment schedules and tracking |
-
-### Excel Files
-
-| File | Content |
-|------|---------|
-| Installments.xlsx | Payment schedules with actual due dates |
-| More House - Occupancy Report.xlsx | Room data, contracts, cash flow projections |
+| Won Deals | 8606133913 | Contracts, payment schedules, payment tracking |
+| Qualified | 9188309936 | CRM deals, viewings, leads |
 
 ## Database Schema
 
@@ -51,11 +65,11 @@ room_id, floor, category, sqm, weekly_rate, mattress_size
 
 **`contracts`** - Booking contracts
 ```
-room_id, resident_name, start_date, end_date,
-total_value, payment_plan, status, nationality, university
+monday_id, room_id, resident_name, start_date, end_date,
+total_value, weekly_rate, payment_plan, status, nationality, university
 ```
 
-**`payment_schedule`** - Expected payments (actual due dates from Monday/Excel)
+**`payment_schedule`** - Expected payments (actual due dates from Monday)
 ```
 contract_id, installment_number, due_date, amount, status
 ```
@@ -71,26 +85,6 @@ contract_id, payment_date, amount, payment_method, allocated_to_installment
 month_date, category, amount
 ```
 
-### Data Flow
-
-```
-┌─────────────────────┐     ┌─────────────────────┐
-│  Installments.xlsx  │     │  Monday CRM Boards  │
-│  (Won Deals export) │     │  (future live sync) │
-└─────────┬───────────┘     └──────────┬──────────┘
-          │                            │
-          ▼                            ▼
-    ┌─────────────────────────────────────────┐
-    │         import_installments.py          │
-    └─────────────────┬───────────────────────┘
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-    ┌─────────┐ ┌───────────┐ ┌──────────────────┐
-    │  rooms  │ │ contracts │ │ payment_schedule │
-    └─────────┘ └───────────┘ └──────────────────┘
-```
-
 ## Payment Structure
 
 Payments are **termly** (not monthly). Typical schedule:
@@ -104,16 +98,7 @@ Payments are **termly** (not monthly). Typical schedule:
 | Installment 4 | Spring | Apr 10 |
 | Installment 5 | (if needed) | Variable |
 
-### Payment Plans
-
-| Plan | Structure | Count |
-|------|-----------|-------|
-| Installments | Booking fee + 4 termly payments | 91 |
-| Single Payment | Booking fee + 1 full payment | 15 |
-| Studentluxe | 3-4 agent remits, no booking fee | 13 |
-| Special Payment Terms | Custom schedule | 7 |
-
-## Quick Start
+## Quick Start (Local Development)
 
 ### 1. Setup Python Environment
 
@@ -130,23 +115,21 @@ pip install -r requirements.txt
 python scripts/init_db.py
 ```
 
-### 3. Import Data
+### 3. Import / Sync Data
 
 ```bash
-# Import payment schedules from Installments.xlsx
+# Sync from Monday CRM (preferred)
+python scripts/sync_monday.py
+
+# Or import from Excel
 python scripts/import_installments.py
-
-# Or specify a different file:
-python scripts/import_installments.py /path/to/file.xlsx
-
-# Clear and reimport:
-python scripts/import_installments.py --clear
 ```
 
 ### 4. Start Backend
 
 ```bash
-uvicorn backend.main:app --reload --port 8001
+source venv/bin/activate
+uvicorn backend.main:app --reload --port 8002
 ```
 
 ### 5. Start Frontend
@@ -159,40 +142,88 @@ npm run dev
 
 Open http://localhost:5174 in your browser.
 
+## Deployment
+
+### Production URL
+http://178.128.46.110/more_house/
+
+### Auto-Deploy
+Push to `main` branch triggers GitHub Actions which:
+1. Rsync files to DigitalOcean server
+2. Install Python dependencies
+3. Restart systemd service
+
+### Server Setup
+- **Server**: DigitalOcean droplet at 178.128.46.110
+- **Nginx**: Reverse proxy `/more_house/` to uvicorn on port 8002
+- **Systemd**: `more-house.service` runs the FastAPI backend
+- **Config files**: `deploy/nginx-more-house.conf`, `deploy/more-house.service`
+
+### Manual Server Commands
+```bash
+# Check service status
+systemctl status more-house
+
+# Restart backend
+systemctl restart more-house
+
+# View logs
+journalctl -u more-house -f
+
+# Nginx config
+/etc/nginx/sites-available/more-house
+```
+
 ## Project Structure
 
 ```
 more_house/
 ├── backend/                 # FastAPI backend
-│   ├── main.py              # API entry point (port 8001)
+│   ├── main.py              # API entry point + static file serving
 │   ├── api/
 │   │   ├── occupancy.py     # Occupancy endpoints
-│   │   └── cashflow.py      # Cash flow endpoints
+│   │   ├── cashflow.py      # Cash flow endpoints
+│   │   ├── sync.py          # Monday sync endpoints
+│   │   └── activity.py      # Viewings & contracts activity
 │   ├── services/
 │   │   ├── occupancy_service.py
 │   │   └── cashflow_service.py
 │   └── models/
 │       └── schemas.py       # Pydantic schemas
-├── frontend/                # React frontend (port 5174)
+├── frontend/                # React frontend
 │   ├── src/
 │   │   ├── App.jsx
-│   │   └── components/
-│   │       ├── OccupancySummary.jsx
-│   │       ├── OccupancyChart.jsx
-│   │       ├── UpcomingVacancies.jsx
-│   │       └── CashFlowChart.jsx
+│   │   ├── config.js        # Shared API_BASE and BASE_PATH
+│   │   ├── components/
+│   │   │   ├── SyncStatusBar.jsx     # Sync Now button
+│   │   │   ├── ActivityTable.jsx     # Viewings/contracts table
+│   │   │   ├── OccupancySummary.jsx  # Summary stat cards
+│   │   │   ├── OccupancyChart.jsx    # Occupancy trend chart
+│   │   │   └── CashFlowChart.jsx
+│   │   └── pages/
+│   │       ├── OccupancyPage.jsx     # Dashboard (home)
+│   │       ├── CashFlowPage.jsx
+│   │       ├── RoomsPage.jsx
+│   │       └── RoomsMapPage.jsx
+│   ├── dist/                # Production build (committed)
+│   ├── vite.config.js
 │   └── package.json
 ├── integrations/
 │   ├── monday_client.py     # Monday CRM API client
 │   └── excel_importer.py    # Excel import utilities
 ├── scripts/
 │   ├── init_db.py           # Create database schema
-│   ├── import_installments.py  # Import payment schedules
+│   ├── sync_monday.py       # Sync rooms + contracts from Monday
+│   ├── import_installments.py  # Import from Excel
 │   └── import_excel.py      # Import from occupancy report
+├── deploy/
+│   ├── nginx-more-house.conf   # Nginx location block
+│   └── more-house.service      # Systemd service file
 ├── utils/
 │   └── db_connection.py     # Database connection helper
-├── .env                     # Environment variables
-├── .env.example             # Template for .env
+├── .github/workflows/
+│   └── deploy.yml           # Auto-deploy on push to main
+├── .env                     # Environment variables (not in git)
 └── requirements.txt
 ```
 
@@ -202,16 +233,25 @@ more_house/
 - `GET /api/occupancy/summary` - Current occupancy (total, occupied, vacant, rate)
 - `GET /api/occupancy/monthly` - Monthly move-ins/move-outs
 - `GET /api/occupancy/weekly` - Weekly breakdown
-- `GET /api/occupancy/vacancies/upcoming?days=30` - Upcoming vacancies (sales priority)
+- `GET /api/occupancy/vacancies/upcoming?days=30` - Upcoming vacancies
 - `GET /api/occupancy/rooms` - All rooms with current status
+- `GET /api/occupancy/rooms/timelines` - All rooms with contract timelines
 - `GET /api/occupancy/rooms/{room_id}/timeline` - Room booking history
 
 ### Cash Flow
-- `GET /api/cashflow/summary` - Current month summary (expected, received, overdue)
-- `GET /api/cashflow/monthly` - Monthly projections with running balance
+- `GET /api/cashflow/summary` - Current month summary
+- `GET /api/cashflow/monthly` - Monthly projections
 - `GET /api/cashflow/weekly` - Weekly breakdown
 - `GET /api/cashflow/payments/expected` - Detailed payment schedule
 - `GET /api/cashflow/payments/overdue` - Overdue payments list
+- `GET /api/cashflow/payments/schedule` - Monthly payment aggregation
+
+### Sync
+- `GET /api/sync/status` - Sync status, Monday board info, DB counts
+- `POST /api/sync/run` - Trigger Monday sync (runs in background)
+
+### Activity
+- `GET /api/activity/summary` - Viewings and contracts signed by period (1d/3d/7d/1m/3m)
 
 ## Environment Variables
 
@@ -223,52 +263,17 @@ DB_SCHEMA=more_house
 # Monday CRM
 MONDAY_API_TOKEN=eyJhbGci...
 MONDAY_BOARD_ID_CONTRACTS=9376648770
+MONDAY_BOARD_ID_PAYMENTS=8606133913
 
 # Application
 DEBUG=true
 API_HOST=0.0.0.0
-API_PORT=8001
-```
-
-## Monday CRM Integration
-
-### Current Status
-- ✅ API connection working
-- ✅ Board discovery implemented
-- ✅ MH - Unit Schedule board mapped (rooms)
-- ✅ Qualified board mapped (bookings)
-- ⏳ Payment tracking board (pending access)
-
-### Test Monday Connection
-
-```bash
-python integrations/monday_client.py
-```
-
-## Development
-
-### Reset Database
-
-```bash
-# Drop and recreate schema (caution: deletes all data)
-python scripts/init_db.py --drop
-python scripts/init_db.py
-```
-
-### Run Tests
-
-```bash
-# Backend
-pytest
-
-# Frontend
-cd frontend && npm test
+API_PORT=8002
 ```
 
 ## Next Steps
 
-1. **Payment Board Integration** - Connect to Monday board with payment tracking
-2. **Actual vs Expected** - Track received payments against schedule
-3. **OPEX Import** - Import operating expenses from budget Excel
-4. **Alerts** - Email/Slack notifications for overdue payments
-5. **Pipeline/Leads** - Sales funnel tracking from Qualified board
+1. **OPEX Import** - Import operating expenses from budget Excel
+2. **Alerts** - Email/Slack notifications for overdue payments
+3. **Pipeline/Leads** - Sales funnel tracking from Qualified board
+4. **Image Generation** - Building illustrations with Google Gemini

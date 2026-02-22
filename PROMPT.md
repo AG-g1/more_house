@@ -2,37 +2,34 @@
 
 ## Project Context
 
-This is a **new standalone project** for More House student accommodation (120 rooms in London). It is NOT related to the crypto_trading project in the parent directory.
+This is a **standalone project** for More House student accommodation (120 rooms in London). It is NOT related to the crypto_trading project.
 
 **Project location:** `/Users/alexgilts/PycharmProjects/more_house`
+**Live URL:** http://178.128.46.110/more_house/
+**GitHub:** https://github.com/AG-g1/more_house
 
-## What I Need Built
+## Current State
 
-A dashboard with two main views:
+### Working Features
+- Dashboard with occupancy summary, activity table, trend charts, weekly schedule
+- Cash flow page with monthly projections and payment tracking
+- Rooms list with filtering
+- Rooms map with visual building layout
+- Monday CRM sync (rooms, contracts, payments) with "Sync Now" button
+- Activity tracking: viewings and contracts signed (1d/3d/7d/1m/3m from Monday)
+- Auto-deploy via GitHub Actions (push to main -> deploys to server)
 
-### 1. Occupancy Movement Tracker
-- Monthly overview showing projected move-ins and move-outs based on signed contracts
-- Weekly drill-down for more granular planning
-- Net occupancy change per period (move-ins minus move-outs)
-- **Sales Priority List**: Rooms becoming vacant with no follow-on booking (this is critical - sales team needs to know which rooms to fill)
+### Tech Stack
+- **Backend**: Python 3.12, FastAPI on port 8002
+- **Frontend**: React 19, Vite, Tailwind CSS (base path `/more_house/`)
+- **Database**: TimescaleDB (PostgreSQL) - `more_house` schema
+- **Server**: DigitalOcean droplet (178.128.46.110), nginx, systemd
+- **CI/CD**: GitHub Actions auto-deploy on push to main
 
-### 2. Cash Flow View
-- Monthly cash inflows (rent payments) and outflows (OPEX)
-- Running balance to forecast liquidity
-- Expected vs actual payment tracking
-- Overdue payment alerts
-
-## Data Sources
-
-### Primary: Monday CRM
-- **MH - Unit Schedule** (Board ID: 9376648770) - Room inventory
-- **Qualified** (Board ID: 9188309936) - Bookings (Deal Stage = "10. Converted")
-- **Won Deals board** (access pending) - Payment schedules with actual due dates
-
-### Backup: Excel Files
-Located in: `/Users/alexgilts/Library/Mobile Documents/com~apple~CloudDocs/AG Work/SAV Group/`
-- `Installments.xlsx` - Payment schedules (131 contracts with booking fees + installments)
-- `More House - Occupancy Report - 29 Nov 2025 (with Forecast).xlsx` - Room data, contracts
+### Data Sources
+- **Monday CRM**: 3 boards (Unit Schedule, Won Deals, Qualified)
+- **Database**: 120 rooms, 147 contracts, 459 payment schedules, 307 payments received
+- **Excel**: Installments.xlsx (backup import)
 
 ## Key Business Rules
 
@@ -53,57 +50,57 @@ Payments are **termly**, not monthly:
 | Studentluxe | 3-4 agent remits, no booking fee |
 | Special Payment Terms | Custom schedule |
 
-## Current State
+## How to Run
 
-### Done
-- Project structure created (FastAPI backend, React frontend)
-- Database schema designed (`more_house` schema in existing TimescaleDB)
-- Monday CRM client implemented and tested
-- Excel importer for Installments.xlsx ready
-- Basic React components scaffolded
-
-### Not Done
-- Database tables not yet created (run `python scripts/init_db.py`)
-- No data imported yet
-- Frontend components need to be connected to real API
-- Monday sync not complete (waiting for payment board access)
-
-## Technical Details
-
-- **Backend**: FastAPI on port 8001
-- **Frontend**: React 19 + Vite + Tailwind on port 5174
-- **Database**: TimescaleDB (same instance as crypto project, different schema)
-- **Monday API Token**: Already in `.env`
-
-## To Get Started
-
+### Local Development
 ```bash
-cd /Users/alexgilts/PycharmProjects/more_house
+# Backend
 source venv/bin/activate
+uvicorn backend.main:app --reload --port 8002
 
-# 1. Initialize database
-python scripts/init_db.py
-
-# 2. Import data (use Excel until Monday board is ready)
-python scripts/import_installments.py
-
-# 3. Start backend
-uvicorn backend.main:app --reload --port 8001
-
-# 4. Start frontend (in another terminal)
+# Frontend (separate terminal)
 cd frontend && npm run dev
+
+# Sync Monday data
+python scripts/sync_monday.py
 ```
 
-## What I Want You To Do
+### Production Deployment
+Push to `main` branch triggers auto-deploy. Or manually:
+```bash
+ssh root@178.128.46.110
+systemctl restart more-house
+```
 
-1. Make sure the database is initialized and working
-2. Import data from Installments.xlsx
-3. Get the backend API returning real data
-4. Build out the frontend dashboard with:
-   - Occupancy summary cards (total rooms, occupied, vacant, rate)
-   - Monthly occupancy chart (move-ins vs move-outs)
-   - Upcoming vacancies list (sales priority)
-   - Cash flow chart (monthly inflows/outflows)
-5. Make it look professional and clean
+### Build Frontend for Production
+```bash
+cd frontend && npx vite build
+# Commit dist/ and push to deploy
+```
+
+## Environment Variables (.env - not in git)
+```
+TIMESCALE_SERVICE_URL=postgres://...
+DB_SCHEMA=more_house
+MONDAY_API_TOKEN=eyJ...
+MONDAY_BOARD_ID_CONTRACTS=9376648770
+MONDAY_BOARD_ID_PAYMENTS=8606133913
+GOOGLE_AI_API_KEY=AIzaSyD6...
+API_PORT=8002
+```
+
+## What Needs Doing Next
+
+1. **OPEX Import** - Import operating expenses from budget Excel
+2. **Alerts** - Email/Slack notifications for overdue payments
+3. **Pipeline/Leads** - Sales funnel tracking from Qualified board
+4. **Image Generation** - Building illustrations with Google Gemini (API key configured)
+
+## Important Notes
+- Backend port is 8002 (not 8001, which is used by crypto trading)
+- Frontend API calls use centralized `config.js` (`/more_house/api`)
+- `frontend/dist/` is committed to git because the server has no Node.js
+- `.env` must be manually copied to server (not in git)
+- GitHub secret `SSH_PRIVATE_KEY` (ed25519) is configured for auto-deploy
 
 Read `README.md` for full technical documentation.
